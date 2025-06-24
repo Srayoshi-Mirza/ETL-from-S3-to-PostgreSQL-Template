@@ -5,6 +5,7 @@ import boto3
 import pandas as pd
 import sqlalchemy
 from sqlalchemy import create_engine
+from typing import Optional, Dict, Any
 import argparse
 import logging
 from datetime import datetime, timezone, timedelta
@@ -23,19 +24,230 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def extract_date_from_filename(filename):
-    """Extract date from filename pattern: prefix_YYYY-MM-DDTHHMM_suffix.csv.gz"""
-    # Look for pattern like 2025-02-03T030000
-    date_match = re.search(r'(\d{4}-\d{2}-\d{2})T\d{6}', filename)
-    if date_match:
-        return date_match.group(1)
+def extract_date_from_filename(filename: str, patterns: Optional[Dict[str, str]] = None, 
+                             return_format: str = 'string') -> Optional[Any]:
+    """
+    Extract date from filename using configurable regex patterns.
     
-    # Fallback to simpler YYYY-MM-DD pattern
-    date_match = re.search(r'(\d{4}-\d{2}-\d{2})', filename)
-    if date_match:
-        return date_match.group(1)
+    Args:
+        filename (str): The filename to extract date from
+        patterns (dict): Dictionary of pattern names and regex patterns to try
+        return_format (str): 'string', 'datetime', or 'dict' (returns all matches)
     
-    return None
+    Returns:
+        Extracted date in requested format, or None if no match found
+    """
+    
+    # Default patterns - can be customized for different naming conventions
+    if patterns is None:
+        patterns = {
+            # ISO datetime with T separator: 2025-02-03T030000
+            'iso_datetime_compact': r'(\d{4}-\d{2}-\d{2})T(\d{6})',
+            
+            # ISO datetime with time: 2025-02-03T03:00:00
+            'iso_datetime_full': r'(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})',
+            
+            # ISO date only: 2025-02-03
+            'iso_date': r'(\d{4}-\d{2}-\d{2})',
+            
+            # US format with time: 02-03-2025_030000
+            'us_datetime': r'(\d{2}-\d{2}-\d{4})_(\d{6})',
+            
+            # US format date only: 02-03-2025
+            'us_date': r'(\d{2}-\d{2}-\d{4})',
+            
+            # Compact format: 20250203
+            'compact_date': r'(\d{8})',
+            
+            # Underscore separated: 2025_02_03
+            'underscore_date': r'(\d{4}_\d{2}_\d{2})',
+            
+            # Dot separated: 2025.02.03
+            'dot_date': r'(\d{4}\.\d{2}\.\d{2})',
+            
+            # Year and month only: 2025-02
+            'year_month': r'(\d{4}-\d{2})',
+            
+            # Timestamp in filename: timestamp_1706918400 (Unix timestamp)
+            'unix_timestamp': r'timestamp_(\d{10})',
+            
+            # Date range: 2025-02-03_to_2025-02-10
+            'date_range': r'(\d{4}-\d{2}-\d{2})_to_(\d{4}-\d{2}-\d{2})',
+        }
+    
+    results = {}
+    
+    # Try each pattern
+    for pattern_name, pattern in patterns.items():
+        match = re.search(pattern, filename)
+        if match:
+            try:
+                # Handle different pattern types
+                if pattern_name == 'iso_datetime_compact':
+                    date_str = match.group(1)
+                    time_str = match.group(2)
+                    # Convert time format: 030000 -> 03:00:00
+                    formatted_time = f"{time_str[:2]}:{time_str[2:4]}:{time_str[4:6]}"
+                    full_datetime = f"{date_str}T{formatted_time}"
+                    results[pattern_name] = {
+                        'date': date_str,
+                        'time': formatted_time,
+                        'datetime': full_datetime,
+                        'datetime_obj': datetime.fromisoformat(full_datetime)
+                    }
+                
+                elif pattern_name == 'iso_datetime_full':
+                    date_str = match.group(1)
+                    time_str = match.group(2)
+                    full_datetime = f"{date_str}T{time_str}"
+                    results[pattern_name] = {
+                        'date': date_str,
+                        'time': time_str,
+                        'datetime': full_datetime,
+                        'datetime_obj': datetime.fromisoformat(full_datetime)
+                    }
+                
+                elif pattern_name == 'iso_date':
+                    date_str = match.group(1)
+                    results[pattern_name] = {
+                        'date': date_str,
+                        'datetime_obj': datetime.strptime(date_str, '%Y-%m-%d')
+                    }
+                
+                elif pattern_name == 'us_datetime':
+                    date_str = match.group(1)  # MM-DD-YYYY
+                    time_str = match.group(2)  # HHMMSS
+                    # Convert to ISO format
+                    month, day, year = date_str.split('-')
+                    iso_date = f"{year}-{month}-{day}"
+                    formatted_time = f"{time_str[:2]}:{time_str[2:4]}:{time_str[4:6]}"
+                    results[pattern_name] = {
+                        'date': iso_date,
+                        'time': formatted_time,
+                        'datetime': f"{iso_date}T{formatted_time}",
+                        'datetime_obj': datetime.strptime(f"{iso_date} {formatted_time}", '%Y-%m-%d %H:%M:%S')
+                    }
+                
+                elif pattern_name == 'us_date':
+                    date_str = match.group(1)  # MM-DD-YYYY
+                    month, day, year = date_str.split('-')
+                    iso_date = f"{year}-{month}-{day}"
+                    results[pattern_name] = {
+                        'date': iso_date,
+                        'datetime_obj': datetime.strptime(iso_date, '%Y-%m-%d')
+                    }
+                
+                elif pattern_name == 'compact_date':
+                    date_str = match.group(1)  # YYYYMMDD
+                    iso_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+                    results[pattern_name] = {
+                        'date': iso_date,
+                        'datetime_obj': datetime.strptime(date_str, '%Y%m%d')
+                    }
+                
+                elif pattern_name == 'underscore_date':
+                    date_str = match.group(1)  # YYYY_MM_DD
+                    iso_date = date_str.replace('_', '-')
+                    results[pattern_name] = {
+                        'date': iso_date,
+                        'datetime_obj': datetime.strptime(date_str, '%Y_%m_%d')
+                    }
+                
+                elif pattern_name == 'dot_date':
+                    date_str = match.group(1)  # YYYY.MM.DD
+                    iso_date = date_str.replace('.', '-')
+                    results[pattern_name] = {
+                        'date': iso_date,
+                        'datetime_obj': datetime.strptime(date_str, '%Y.%m.%d')
+                    }
+                
+                elif pattern_name == 'year_month':
+                    date_str = match.group(1)  # YYYY-MM
+                    results[pattern_name] = {
+                        'date': date_str,
+                        'datetime_obj': datetime.strptime(date_str, '%Y-%m')
+                    }
+                
+                elif pattern_name == 'unix_timestamp':
+                    timestamp = int(match.group(1))
+                    dt = datetime.fromtimestamp(timestamp)
+                    results[pattern_name] = {
+                        'date': dt.strftime('%Y-%m-%d'),
+                        'datetime': dt.isoformat(),
+                        'datetime_obj': dt,
+                        'timestamp': timestamp
+                    }
+                
+                elif pattern_name == 'date_range':
+                    start_date = match.group(1)
+                    end_date = match.group(2)
+                    results[pattern_name] = {
+                        'start_date': start_date,
+                        'end_date': end_date,
+                        'start_datetime_obj': datetime.strptime(start_date, '%Y-%m-%d'),
+                        'end_datetime_obj': datetime.strptime(end_date, '%Y-%m-%d')
+                    }
+                
+                logger.debug(f"Pattern '{pattern_name}' matched in filename: {filename}")
+                
+            except Exception as e:
+                logger.warning(f"Error processing pattern '{pattern_name}' for filename '{filename}': {e}")
+                continue
+    
+    # Return based on requested format
+    if not results:
+        logger.debug(f"No date patterns found in filename: {filename}")
+        return None
+    
+    if return_format == 'dict':
+        return results
+    
+    # Return the first successful match
+    first_result = next(iter(results.values()))
+    
+    if return_format == 'datetime':
+        return first_result.get('datetime_obj')
+    elif return_format == 'string':
+        return first_result.get('date')
+    else:
+        return first_result.get('date')
+
+
+# Convenience functions for common use cases
+def extract_date_simple(filename: str) -> Optional[str]:
+    """Simple date extraction - returns ISO date string or None"""
+    return extract_date_from_filename(filename, return_format='string')
+
+
+def extract_datetime_object(filename: str) -> Optional[datetime]:
+    """Extract date as datetime object"""
+    return extract_date_from_filename(filename, return_format='datetime')
+
+
+def extract_all_dates(filename: str) -> Dict[str, Any]:
+    """Extract all possible date patterns from filename"""
+    result = extract_date_from_filename(filename, return_format='dict')
+    return result if result else {}
+
+
+# Custom pattern examples for specific use cases
+def get_custom_patterns():
+    """Return custom patterns for specific business needs"""
+    return {
+        # Sales data patterns
+        'sales_daily': r'sales_(\d{4}-\d{2}-\d{2})_daily\.csv',
+        'sales_monthly': r'sales_(\d{4}-\d{2})_monthly\.csv',
+        
+        # Log file patterns
+        'log_file': r'app_(\d{4}\d{2}\d{2})_(\d{2}\d{2}\d{2})\.log',
+        
+        # Backup patterns
+        'backup_file': r'backup_(\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2})\.sql',
+        
+        # Report patterns
+        'report_quarterly': r'report_Q(\d)_(\d{4})\.xlsx',
+    }
+
 
 def process_single_day(day_to_process, db_engine):
     """Process a single day's worth of data from S3, merge all files, and load to PostgreSQL"""
