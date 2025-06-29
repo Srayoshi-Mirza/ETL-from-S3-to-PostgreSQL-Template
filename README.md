@@ -23,7 +23,7 @@ A robust Python-based ETL (Extract, Transform, Load) pipeline that downloads CSV
 
 1. **Clone the repository**
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/Srayoshi-Mirza/ETL-from-S3-to-PostgreSQL-Template.git
    cd s3-postgres-etl
    ```
 
