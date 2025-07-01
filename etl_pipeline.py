@@ -429,7 +429,7 @@ def process_single_day(day_to_process, db_engine):
         return False
 
     # Convert timestamp columns to datetime if they exist
-    timestamp_columns = ['installed_at', 'reinstalled_at', 'click_time', 'impression_time']
+    timestamp_columns = ['date_time_column1', 'date_time_column2', 'date_time_column3', 'date_time_column4']
     for col in timestamp_columns:
         if col in merged_df.columns:
             # Check if the column contains numeric values (Unix timestamps)
