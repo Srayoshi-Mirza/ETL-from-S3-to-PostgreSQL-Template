@@ -270,11 +270,10 @@ For issues and questions:
 
 
 flowchart TD
+
     A[KoboToolbox 📋\n(Form + Data Collection)] --> B[Raw JSON/CSV 📂\n(Export or Auto Sync)]
     B --> C[Local Staging or AWS S3 🧊\n(Compressed .csv.gz)]
-    
     C --> D[Airflow via Docker ⚙️\n(Or Prefect Scheduler)]
-    
     D --> E[Extract Stage 📥\n(Read from S3 or Local)]
     E --> F[Load Raw Data 🐘\n(PostgreSQL - raw schema)]
     F --> G[Transform with Pandas 🧪\n(Clean, reshape, relabel)]
