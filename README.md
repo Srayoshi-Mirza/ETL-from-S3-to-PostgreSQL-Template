@@ -268,9 +268,8 @@ For issues and questions:
 - Chunked database uploads
 - Comprehensive logging
 
-
+```mermaid
 flowchart TD
-
     A[KoboToolbox 📋\n(Form + Data Collection)] --> B[Raw JSON/CSV 📂\n(Export or Auto Sync)]
     B --> C[Local Staging or AWS S3 🧊\n(Compressed .csv.gz)]
     C --> D[Airflow via Docker ⚙️\n(Or Prefect Scheduler)]
@@ -278,5 +277,5 @@ flowchart TD
     E --> F[Load Raw Data 🐘\n(PostgreSQL - raw schema)]
     F --> G[Transform with Pandas 🧪\n(Clean, reshape, relabel)]
     G --> H[Load Cleaned Data 🧹\n(PostgreSQL - processed schema)]
-
     H --> I[Metabase / Superset 📊\n(Dashboard & Reports)]
+```
